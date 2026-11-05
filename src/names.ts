@@ -1,6 +1,7 @@
 import type { Project } from "./types.ts";
 
-export const normaliseName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+// NFKD + dropping combining marks folds accents ("Café" = "cafe") but keeps other scripts distinct.
+export const normaliseName = (s: string) => s.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 
 function levenshtein(a: string, b: string): number {
   let prev = Array.from({ length: b.length + 1 }, (_, i) => i);

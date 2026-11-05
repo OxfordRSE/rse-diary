@@ -121,3 +121,31 @@ it("serves agent instructions as markdown", async () => {
   expect(r.type).toContain("text/markdown");
   expect(r.json).toContain("POST");
 });
+
+describe("review fixes", () => {
+  it("rejects implausible years so a typo can't trigger a huge history read", async () => {
+    expect((await call("POST", "/api/entries", { project: "Glow", date: "0026-03-02", fte: 0.1 })).status).toBe(422);
+    expect((await call("PATCH", "/api/projects/glow", { start: "0026-03-02" })).status).toBe(422);
+    expect((await call("GET", "/api/entries?from=0001-01-01&to=2026-11-05")).status).toBe(422);
+  });
+
+  it("accepts entries up to a week ahead and can find, list and edit them", async () => {
+    const { json } = await call("POST", "/api/entries", { project: "Glow", date: "2026-11-06", fte: 0.1 });
+    expect(json.entries[0].date).toBe("2026-11-06");
+    expect((await call("GET", "/api/projects")).json.projects.find((p: { id: string }) => p.id === "glow").totals.fteDays).toBe(0.1);
+    expect((await call("PATCH", `/api/entries/${json.entries[0].id}`, { notes: "x" })).status).toBe(200);
+    expect((await call("POST", "/api/entries", { project: "Glow", date: "2026-11-20", fte: 0.1 })).status).toBe(422);
+  });
+
+  it("keeps non-Latin project names distinct", async () => {
+    await call("POST", "/api/projects", { name: "α analysis" });
+    const r = await call("POST", "/api/projects", { name: "β analysis" });
+    expect(r.status).toBe(201);
+  });
+
+  it("answers a null JSON body with a 400 explaining the problem", async () => {
+    const r = await call("POST", "/api/projects", null);
+    expect(r.status).toBe(400);
+    expect(r.json.error).toMatch(/object/);
+  });
+});

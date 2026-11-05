@@ -34,5 +34,9 @@ export function monthsBetween(from: string, to: string): string[] {
   }
 }
 
+/** Latest date an entry may have: agents in other timezones, or pre-logging, run a little ahead of London. */
+export const horizon = (today: string) => addDays(today, 7);
+
+// Years outside 2000–2099 are typos ("0026"); accepting them would make history reads unbounded.
 export const isDate = (s: unknown): s is string =>
-  typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && fromUtc(toUtc(s)) === s;
+  typeof s === "string" && /^20\d{2}-\d{2}-\d{2}$/.test(s) && fromUtc(toUtc(s)) === s;

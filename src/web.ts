@@ -1,5 +1,5 @@
 import { createProject, patchEntry, updateProject } from "./api.ts";
-import { addDays, isDate } from "./dates.ts";
+import { addDays, horizon, isDate } from "./dates.ts";
 import { historyStart, logEntries } from "./entries.ts";
 import { summaryRows, toLog, toProjectJson, toSummaryCsv } from "./exports.ts";
 import type { Repo } from "./repo.ts";
@@ -52,7 +52,7 @@ export async function handleWeb(req: Request, ctx: WebCtx): Promise<Response> {
     const ids = new Set(cfg.projects.map((p) => p.id));
     const asked = url.searchParams.getAll("p").filter((id) => ids.has(id));
     const selected = asked.length ? asked : cfg.projects.filter((p) => !p.archived).map((p) => p.id);
-    const all = await repo.getEntries(historyStart(cfg, today), today);
+    const all = await repo.getEntries(historyStart(cfg, today), horizon(today));
     if (q("fragment") === "day") {
       const sel = new Set(selected);
       return page(daySection({ day, entries: all.filter((e) => sel.has(e.project_id)), projects: cfg.projects }).toString());
@@ -63,7 +63,7 @@ export async function handleWeb(req: Request, ctx: WebCtx): Promise<Response> {
 
   if (path === "/projects" && !post) {
     const cfg = await repo.getConfig();
-    return page(projectsPage({ user, projects: cfg.projects, entries: await repo.getEntries(historyStart(cfg, today), today) }));
+    return page(projectsPage({ user, projects: cfg.projects, entries: await repo.getEntries(historyStart(cfg, today), horizon(today)) }));
   }
 
   if (path === "/projects/new") {
@@ -89,7 +89,7 @@ export async function handleWeb(req: Request, ctx: WebCtx): Promise<Response> {
     if (post) return notFound();
     // Read from the earliest of the project's own start and the history window, so pre-start work is binned.
     const from = [historyStart(cfg, today), p.start ? addDays(p.start, -365) : today].sort()[0]!;
-    const entries = (await repo.getEntries(from, today)).filter((e) => e.project_id === p.id);
+    const entries = (await repo.getEntries(from, horizon(today))).filter((e) => e.project_id === p.id);
     if (pm[2] === "/export.log") return download(toLog(p, entries, today), "text/plain", `${p.id}.log`);
     if (pm[2] === "/export.json") return download(JSON.stringify(toProjectJson(p, entries, today), null, 2), "application/json", `${p.id}.json`);
     return page(projectPage({ user, today, project: p, entries }));
@@ -112,7 +112,7 @@ export async function handleWeb(req: Request, ctx: WebCtx): Promise<Response> {
   const em = path.match(/^\/entries\/([^/]+)\/(edit|delete)$/);
   if (em) {
     const anchor = isDate(q("date")) ? q("date")! : today;
-    const entry = await repo.findEntry(decodeURIComponent(em[1]!), anchor > today ? anchor : today);
+    const entry = await repo.findEntry(decodeURIComponent(em[1]!), anchor > horizon(today) ? anchor : horizon(today));
     if (!entry) return notFound();
     const cfg = await repo.getConfig();
     const self = `/entries/${entry.id}`;
@@ -125,7 +125,7 @@ export async function handleWeb(req: Request, ctx: WebCtx): Promise<Response> {
     const deleteHref = `${self}/delete?date=${entry.date}`;
     if (!post) return page(entryFormPage({ user, projects: cfg.projects, action, entry, deleteHref }));
     const f = entryFields(await form(req));
-    const r = await patchEntry(repo, entry, f);
+    const r = await patchEntry(repo, entry, f, today);
     if ("error" in r) return page(entryFormPage({ user, projects: cfg.projects, action, entry, deleteHref, error: r.error }), 422);
     return redirect(`/?day=${r.entry.date}`);
   }
@@ -136,7 +136,7 @@ export async function handleWeb(req: Request, ctx: WebCtx): Promise<Response> {
     const projects = ids.length ? cfg.projects.filter((p) => ids.includes(p.id)) : cfg.projects;
     const from = isDate(q("from")) ? q("from")! : undefined;
     const to = isDate(q("to")) ? q("to")! : undefined;
-    const rows = summaryRows(projects, await repo.getEntries(historyStart(cfg, today), today), from, to);
+    const rows = summaryRows(projects, await repo.getEntries(historyStart(cfg, today), horizon(today)), from, to);
     if (q("format") === "json") return download(JSON.stringify({ exported_at: today, from, to, projects: rows }, null, 2), "application/json", `rse-diary-summary-${today}.json`);
     return download(toSummaryCsv(rows), "text/csv", `rse-diary-summary-${today}.csv`);
   }

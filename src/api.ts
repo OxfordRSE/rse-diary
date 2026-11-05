@@ -1,4 +1,4 @@
-import { isDate, monthKey } from "./dates.ts";
+import { horizon, isDate, monthKey } from "./dates.ts";
 import { checkFte, historyStart, logEntries, resolveProject, type EntryInput } from "./entries.ts";
 import { INSTRUCTIONS } from "./instructions.ts";
 import { newProject, type Repo } from "./repo.ts";
@@ -14,11 +14,14 @@ const fail = (status: number, error: string, detail?: unknown) => json(status, {
 class BadRequest extends Error {}
 
 async function body(req: Request): Promise<unknown> {
+  let b: unknown;
   try {
-    return await req.json();
+    b = await req.json();
   } catch {
     throw new BadRequest("body must be JSON");
   }
+  if (typeof b !== "object" || b === null) throw new BadRequest("body must be a JSON object (or, for POST /api/entries, an array of objects)");
+  return b;
 }
 
 /** Validates the editable project fields; returns an error message or the patch. */
@@ -88,10 +91,11 @@ export async function updateProject(repo: Repo, id: string, b: Record<string, un
 
 const clean = <T extends object>(o: T) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
 
-export async function patchEntry(repo: Repo, old: Entry, b: Record<string, unknown>, now = new Date().toISOString()) {
+export async function patchEntry(repo: Repo, old: Entry, b: Record<string, unknown>, today: string, now = new Date().toISOString()) {
   const next: Entry = { ...old, updated_at: now };
   if ("date" in b) {
     if (!isDate(b.date)) return { error: "date must be YYYY-MM-DD" };
+    if (b.date > horizon(today)) return { error: `date must be no later than ${horizon(today)}` };
     next.date = b.date;
   }
   if ("fte" in b) {
@@ -124,7 +128,7 @@ export async function handleApi(req: Request, ctx: ApiCtx): Promise<Response> {
 
     if (path === "/api/projects" && m === "GET") {
       const cfg = await repo.getConfig();
-      const all = await repo.getEntries(historyStart(cfg, ctx.today), ctx.today);
+      const all = await repo.getEntries(historyStart(cfg, ctx.today), horizon(ctx.today));
       return json(200, { projects: cfg.projects.map((p) => ({ ...p, totals: projectTotals(all, p.id) })) });
     }
 
@@ -163,13 +167,13 @@ export async function handleApi(req: Request, ctx: ApiCtx): Promise<Response> {
 
     const em = path.match(/^\/api\/entries\/([^/]+)$/);
     if (em && (m === "PATCH" || m === "DELETE")) {
-      const old = await repo.findEntry(decodeURIComponent(em[1]!), ctx.today);
+      const old = await repo.findEntry(decodeURIComponent(em[1]!), horizon(ctx.today));
       if (!old) return fail(404, "no such entry (searched the last 3 years)");
       if (m === "DELETE") {
         await repo.replaceEntry(old, null);
         return new Response(null, { status: 204 });
       }
-      const r = await patchEntry(repo, old, (await body(req)) as Record<string, unknown>);
+      const r = await patchEntry(repo, old, (await body(req)) as Record<string, unknown>, ctx.today);
       if ("error" in r) return fail(422, r.error!);
       return json(200, { entry: r.entry });
     }

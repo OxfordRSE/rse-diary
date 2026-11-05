@@ -1,4 +1,4 @@
-import { addDays, isDate, monthKey } from "./dates.ts";
+import { addDays, horizon, isDate, monthKey } from "./dates.ts";
 import { ulid } from "./ids.ts";
 import { closestNames, normaliseName } from "./names.ts";
 import { newProject, type Repo } from "./repo.ts";
@@ -42,6 +42,7 @@ export async function logEntries(repo: Repo, items: EntryInput[], opts: { today:
     if (typeof it !== "object" || it === null) return err("each entry must be an object");
     const date = it.date ?? opts.today;
     if (!isDate(date)) return err("date must be YYYY-MM-DD");
+    if (date > horizon(opts.today)) return err(`date must be no later than ${horizon(opts.today)}`);
     const fte = checkFte(it.fte);
     if (typeof fte === "string") return err(fte);
     if (it.notes !== undefined && typeof it.notes !== "string") return err("notes must be a string");
