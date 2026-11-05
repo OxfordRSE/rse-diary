@@ -61,9 +61,9 @@ export function calendarTable(o: CalendarOpts): Html {
       : html`<a href="${o.href(d)}"><span class="vh">${d}</span>${inner}</a>`}</td>`;
   };
 
-  return html`<div class="cal-wrap"><table class="cal" style="${style}">
+  return html`<div class="cal-wrap"><table class="cal${o.mode === "neutral" ? "" : " accent"}" style="${style}">
 <caption class="vh">Days worked, ${o.from} to ${o.to}</caption>
-<thead><tr><td></td>${o.before ? html`<td></td>` : ""}${weeks.map((w, i) => html`<th scope="col" style="--w:${i + 1 + offset}">${short(w)}</th>`)}${o.after ? html`<td></td>` : ""}</tr></thead>
+<thead><tr><td></td>${o.before ? html`<td></td>` : ""}${weeks.map((w, i) => html`<th scope="col" style="--w:${i + 1 + offset}"${i === 0 || addDays(w, 6).slice(5, 7) !== w.slice(5, 7) || w.endsWith("-01") ? html` class="month" data-month="${MONTHS[Number(addDays(w, 6).slice(5, 7)) - 1]}"` : ""}>${short(w)}</th>`)}${o.after ? html`<td></td>` : ""}</tr></thead>
 <tbody>
 ${DAYS.map((name, di) => html`<tr><th scope="row" style="--d:${di + 1}">${name}</th>${di === 0 && o.before ? binCell("Before start", o.before, 1) : ""}${weeks.map((w, wi) => cell(addDays(w, di), wi, di))}${di === 0 && o.after ? binCell("After deadline", o.after, weeks.length + 1 + offset) : ""}</tr>
 `)}</tbody>
