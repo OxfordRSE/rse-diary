@@ -1,0 +1,65 @@
+# Tests every push and PR; pushes to main also deploy with `terraform apply`.
+# Usually that only changes the Lambda code and the static files in S3.
+#
+# Repository variables to set (Settings → Secrets and variables → Actions → Variables):
+#   AWS_DEPLOY_ROLE_ARN    from `terraform -chdir=infra/bootstrap output deploy_role_arn`
+#   TF_STATE_BUCKET        from `terraform -chdir=infra/bootstrap output state_bucket`
+#   COGNITO_DOMAIN_PREFIX  globally unique Cognito sign-in prefix
+#   DOMAIN_NAME, ACM_CERTIFICATE_ARN  optional custom domain
+
+name: test-and-deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency: deploy # one apply at a time; the state lock is the backstop
+    permissions:
+      contents: read
+      id-token: write # for AWS OIDC
+    env:
+      TF_VAR_cognito_domain_prefix: ${{ vars.COGNITO_DOMAIN_PREFIX }}
+      TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+      TF_VAR_acm_certificate_arn: ${{ vars.ACM_CERTIFICATE_ARN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-west-2
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+        working-directory: infra
+      - run: terraform apply -input=false -auto-approve
+        working-directory: infra
+      - run: echo "Deployed to $(terraform output -raw app_url)" >> "$GITHUB_STEP_SUMMARY"
+        working-directory: infra

@@ -41,20 +41,37 @@ npm run build       # dist/lambda + dist/static
 
 ## Deploy
 
-You need AWS credentials and Terraform ≥ 1.6.
+Pushes to `main` deploy through GitHub Actions (`.github/workflows/deploy.yml`): tests, build, then `terraform apply`. Usually that only updates the Lambda code and the static files. Every resource that takes tags gets `project-name = oxrse` and `project = rse-diary`.
+
+**One-off setup** (needs admin-ish AWS credentials and Terraform ≥ 1.6):
+
+```sh
+cd infra/bootstrap
+terraform init
+terraform apply -var github_repo=<owner>/<repo>   # add -var create_oidc_provider=false if the account already has GitHub's OIDC provider
+```
+
+This makes the Terraform state bucket and an IAM role that only `main` of that repo can assume. Its own state is local (`infra/bootstrap/terraform.tfstate`); keep that file somewhere safe. Then set these GitHub repository variables:
+
+| Variable | Value |
+|---|---|
+| `AWS_DEPLOY_ROLE_ARN` | `terraform output -raw deploy_role_arn` |
+| `TF_STATE_BUCKET` | `terraform output -raw state_bucket` |
+| `COGNITO_DOMAIN_PREFIX` | a globally unique prefix for the sign-in page |
+| `DOMAIN_NAME`, `ACM_CERTIFICATE_ARN` | optional custom domain (certificate in us-east-1); point a CNAME at `terraform output cloudfront_domain` |
+
+Push to `main`, and the workflow summary shows the site address.
+
+**Deploying by hand** uses the same state:
 
 ```sh
 npm ci && npm run build
 cd infra
-terraform init
-terraform apply -var cognito_domain_prefix=<globally-unique-prefix>
+terraform init -backend-config="bucket=<state bucket>"
+terraform apply -var cognito_domain_prefix=<prefix>
 ```
 
-`terraform output app_url` gives you the site address. To redeploy after changing code, run `npm run build && terraform apply` again. The data bucket and user pool have `prevent_destroy`, so app changes never touch your data.
-
-Optional: set `domain_name` and `acm_certificate_arn` (a certificate in us-east-1) to use a custom domain. Then point a CNAME at `terraform output cloudfront_domain`.
-
-State is local by default; see the commented `backend "s3"` block in `infra/main.tf`.
+The data bucket and user pool have `prevent_destroy`, so app changes never touch your data.
 
 ### Create an account
 

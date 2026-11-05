@@ -5,3 +5,6 @@ infra/.terraform
 infra/*.tfstate*
 infra/*.tfvars
 infra/.terraform.lock.hcl.bak
+infra/**/.terraform
+infra/**/*.tfstate*
+infra/**/*.tfvars

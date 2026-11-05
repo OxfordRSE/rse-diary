@@ -5,18 +5,19 @@ terraform {
     archive = { source = "hashicorp/archive", version = "~> 2.4" }
     random  = { source = "hashicorp/random", version = "~> 3.6" }
   }
-  # Local state by default. To share state, fill in and uncomment:
-  # backend "s3" {
-  #   bucket       = "<your-terraform-state-bucket>"
-  #   key          = "rse-diary/terraform.tfstate"
-  #   region       = "eu-west-2"
-  #   use_lockfile = true
-  # }
+  # State lives in the bucket made by bootstrap/. Bucket name is passed at init:
+  #   terraform init -backend-config="bucket=<state bucket>"
+  backend "s3" {
+    key          = "rse-diary/terraform.tfstate"
+    region       = "eu-west-2"
+    use_lockfile = true
+  }
 }
 
 provider "aws" {
   region = var.region
-  default_tags { tags = merge({ app = var.name }, var.tags) }
+  # Tags every taggable resource (CloudFront functions/policies, OAC, Cognito clients and function URLs can't take tags).
+  default_tags { tags = merge(var.tags, { "project-name" = "oxrse", project = "rse-diary" }) }
 }
 
 data "aws_caller_identity" "me" {}
