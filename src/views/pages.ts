@@ -73,12 +73,14 @@ ${sparkline(weeklySeries(o.allEntries, p.id, CAL_WEEKS, o.today), p.colour)}
   };
 
   return layout("Overview", html`
-<section>
+<div class="overview-top">
+<section class="pattern">
 <h1>Working pattern</h1>
 ${calendarTable({ from, to: o.today, days: dayTotals(entries), projects: o.projects, today: o.today, selected: o.day, href: query, mode: "neutral" })}
 <p class="legend">${visible.map((p) => html`<span>${dot(p)}${p.name}</span> `)}</p>
 </section>
 ${daySection({ day: o.day, entries, projects: o.projects })}
+</div>
 <section>
 <h2>Projects</h2>
 <form method="get" action="/">
@@ -89,7 +91,6 @@ ${archived.length ? html`<details><summary>Archived (${archived.length})</summar
 <button type="submit">Show selected</button>
 <button type="submit" formaction="/export/summary" class="secondary">Export summary (CSV)</button>
 <button type="submit" formaction="/export/summary" name="format" value="json" class="secondary outline">Summary (JSON)</button>
-<a href="/projects/new">New project</a>
 </div>
 </form>
 </section>`, { user: o.user });
@@ -194,12 +195,13 @@ export function projectsPage(o: Base & { projects: Project[]; entries: Entry[] }
   return layout("Projects", html`
 <h1>Projects</h1>
 <p><a href="/projects/new" role="button">New project</a></p>
-<table>
+<table class="cards">
 <thead><tr><th scope="col">Project</th><th scope="col">Dates</th><th scope="col">FTE-days</th><th scope="col">Estimate</th><th scope="col">Touched days</th></tr></thead>
 <tbody>
 ${o.projects.map((p) => {
   const t = projectTotals(o.entries, p.id);
-  return html`<tr><th scope="row">${dot(p)}<a href="/projects/${p.id}">${p.name}</a>${p.archived ? " (archived)" : ""}</th><td>${dates(p)}</td><td>${t.fteDays}</td><td>${p.estimate_fte_days ?? "—"}</td><td>${t.touchOnlyDays}</td></tr>`;
+  // data-label lets narrow screens show each row as a card with inline labels.
+  return html`<tr><th scope="row">${dot(p)}<a href="/projects/${p.id}">${p.name}</a>${p.archived ? " (archived)" : ""}</th><td data-label="Dates">${dates(p)}</td><td data-label="FTE-days">${t.fteDays}</td><td data-label="Estimate">${p.estimate_fte_days ?? "—"}</td><td data-label="Touched days">${t.touchOnlyDays}</td></tr>`;
 })}
 </tbody>
 </table>`, { user: o.user });

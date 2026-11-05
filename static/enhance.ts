@@ -45,5 +45,38 @@ function interceptDayLinks() {
   });
 }
 
+// Without JS the theme follows the OS; this adds a button cycling auto → light → dark (applied early by an inline script in <head>).
+function themeToggle() {
+  const nav = document.querySelector("header nav ul:last-of-type");
+  if (!nav) return;
+  const order = ["", "light", "dark"];
+  const icon = { "": "◐", light: "☀", dark: "☾" } as Record<string, string>;
+  const name = { "": "auto", light: "light", dark: "dark" } as Record<string, string>;
+  const root = document.documentElement;
+  const li = document.createElement("li");
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "theme-toggle secondary outline";
+  const show = () => {
+    const t = root.dataset.theme ?? "";
+    btn.textContent = icon[t]!;
+    btn.title = btn.ariaLabel = `Colour theme: ${name[t]} (click to change)`;
+  };
+  btn.addEventListener("click", () => {
+    const next = order[(order.indexOf(root.dataset.theme ?? "") + 1) % order.length]!;
+    if (next) root.dataset.theme = next;
+    else delete root.dataset.theme;
+    try {
+      if (next) localStorage.setItem("theme", next);
+      else localStorage.removeItem("theme");
+    } catch {}
+    show();
+  });
+  show();
+  li.append(btn);
+  nav.append(li);
+}
+
 scrollCalendarsToToday();
 interceptDayLinks();
+themeToggle();

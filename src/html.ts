@@ -35,6 +35,7 @@ export function layout(title: string, body: Html, opts: { user?: string } = {}):
 <title>${title} · RSE diary</title>
 <link rel="stylesheet" href="/static/pico.min.css">
 <link rel="stylesheet" href="/static/app.css">
+<script>try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <script type="module" src="/static/enhance.js"></script>
 </head>
 <body>
