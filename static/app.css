@@ -134,3 +134,9 @@
 .notes { white-space: pre-wrap; }
 .diary { max-height: 70vh; overflow-y: auto; }
 .diary > div:target .entry { outline: 2px solid var(--pico-primary); }
+
+/* Pico leaves the input's bottom margin inside [role=group], stretching the button. */
+[role=group] > * { margin-bottom: 0; }
+[role=group] > button { white-space: nowrap; flex: 0 0 auto; }
+td form { margin: 0; }
+td form button[type=submit] { width: auto; margin: 0; padding: .3rem .8rem; }
