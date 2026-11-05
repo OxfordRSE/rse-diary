@@ -33,7 +33,7 @@
 
 /* ---------- calendar ---------- */
 
-.cal-wrap { overflow: auto; max-height: 70vh; margin-bottom: 1rem; }
+.cal-wrap { overflow: auto; max-width: 100%; max-height: 70vh; margin-bottom: 1rem; }
 
 .cal, .cal thead, .cal tbody, .cal tr { display: contents; }
 .cal {
@@ -51,8 +51,8 @@
 .cal thead > tr > td { display: none; }
 .cal th[scope="row"] { grid-row: 1; grid-column: calc(var(--d) + 1); text-align: center; }
 .cal th[scope="col"] { grid-column: 1; grid-row: calc(var(--w) + 1); padding-right: .4rem; text-align: right; white-space: nowrap; color: var(--pico-muted-color); }
-.cal th[scope="col"]:not(.month) { font-size: 0; }
-.cal th[scope="col"].month::before { content: attr(data-month) " "; font-weight: 600; }
+.cal th[scope="col"] { font-size: 0; }
+.cal th[scope="col"].month::before { content: attr(data-month); font-weight: 600; font-size: .65rem; }
 .cal td { grid-row: calc(var(--w) + 1); grid-column: calc(var(--d) + 1); }
 .cal td.bin {
   grid-column: 2 / span 7; grid-row: calc(var(--w) + 1);
@@ -101,8 +101,6 @@
   }
   .cal th[scope="row"] { grid-column: 1; grid-row: calc(var(--d) + 1); text-align: right; padding-right: .4rem; }
   .cal th[scope="col"] { grid-row: 1; grid-column: calc(var(--w) + 1); text-align: left; padding: 0; overflow: visible; width: var(--cell); }
-  .cal th[scope="col"].month { font-size: 0; }
-  .cal th[scope="col"].month::before { font-size: .65rem; }
   .cal td { grid-column: calc(var(--w) + 1); grid-row: calc(var(--d) + 1); }
   .cal td.bin { grid-column: calc(var(--w) + 1); grid-row: 2 / span 7; flex-direction: column; width: 5.5rem; text-align: center; }
   .cal-wrap { max-height: none; }

@@ -2,9 +2,16 @@
 
 function scrollCalendarsToToday() {
   for (const wrap of document.querySelectorAll<HTMLElement>(".cal-wrap")) {
+    // Scroll only the wrapper (scrollIntoView would also scroll the page).
     const target = wrap.querySelector<HTMLElement>("td.selected, td.today");
-    if (target) target.scrollIntoView({ block: "nearest", inline: "center" });
-    else wrap.scrollLeft = wrap.scrollWidth;
+    if (!target) {
+      wrap.scrollLeft = wrap.scrollWidth;
+      continue;
+    }
+    const w = wrap.getBoundingClientRect();
+    const t = target.getBoundingClientRect();
+    wrap.scrollLeft += t.left - w.left - w.width / 2;
+    wrap.scrollTop += t.top - w.top - w.height / 2;
   }
 }
 

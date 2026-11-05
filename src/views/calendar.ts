@@ -53,7 +53,7 @@ export function calendarTable(o: CalendarOpts): Html {
       return `${p.name} ${v === "touch" ? "touch" : `${v} FTE`}`;
     });
     const title = `${d}: ${detail.join(", ") || "nothing logged"}`;
-    const inner = html`<span class="fte">${t ? (t.fte ? t.fte : "touch") : ""}</span>${names.length >= 5
+    const inner = html`${t ? html`<span class="fte">: ${t.fte ? `${t.fte} FTE` : "touch"}</span>` : ""}${names.length >= 5
       ? html`<span class="sparkle" aria-hidden="true">✨</span><ul class="dots vh">${names.map((p) => html`<li>${p.name}</li>`)}</ul>`
       : names.length ? html`<ul class="dots">${names.map((p) => html`<li style="--c:${p.colour}">${p.name}</li>`)}</ul>` : ""}`;
     return html`<td class="${cls}" data-date="${d}" data-level="${level(t)}" title="${title}" style="${pos}">${d > o.today
