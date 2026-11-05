@@ -1,5 +1,6 @@
 import type { LambdaFunctionURLEvent, LambdaFunctionURLResult } from "aws-lambda";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
+import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { timingSafeEqual } from "node:crypto";
 import { route, type Deps } from "./app.ts";
 import { S3BlobStore } from "./store.ts";
@@ -25,17 +26,20 @@ export async function toResult(res: Response): Promise<{ statusCode: number; hea
 }
 
 let deps: Deps | undefined;
-function getDeps(): Deps {
+async function getDeps(): Promise<Deps> {
   if (deps) return deps;
   const env = (k: string) => {
     const v = process.env[k];
     if (!v) throw new Error(`missing env ${k}`);
     return v;
   };
-  const verifier = CognitoJwtVerifier.create({ userPoolId: env("USER_POOL_ID"), tokenUse: "id", clientId: env("CLIENT_ID") });
+  // The app client's callback URL needs the CloudFront domain, which needs this function,
+  // so Terraform passes the client id via SSM rather than an env var (avoids a cycle).
+  const clientId = process.env.CLIENT_ID ?? (await new SSMClient({}).send(new GetParameterCommand({ Name: env("CLIENT_ID_PARAM") }))).Parameter!.Value!;
+  const verifier = CognitoJwtVerifier.create({ userPoolId: env("USER_POOL_ID"), tokenUse: "id", clientId });
   return (deps = {
     store: new S3BlobStore(env("DATA_BUCKET")),
-    cognito: { domain: env("COGNITO_DOMAIN"), clientId: env("CLIENT_ID") },
+    cognito: { domain: env("COGNITO_DOMAIN"), clientId },
     verifyIdToken: async (t) => {
       const p = await verifier.verify(t);
       return { sub: p.sub, email: typeof p.email === "string" ? p.email : undefined };
@@ -56,7 +60,7 @@ function fromCloudFront(e: LambdaFunctionURLEvent): boolean {
 export async function handler(e: LambdaFunctionURLEvent): Promise<LambdaFunctionURLResult> {
   if (!fromCloudFront(e)) return { statusCode: 403, body: "Forbidden" };
   try {
-    return await toResult(await route(fromEvent(e), getDeps()));
+    return await toResult(await route(fromEvent(e), await getDeps()));
   } catch (err) {
     console.error(err);
     return { statusCode: 500, headers: { "content-type": "text/plain" }, body: "Something went wrong. Nothing was lost; try again." };
