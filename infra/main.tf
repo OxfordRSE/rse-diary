@@ -22,16 +22,14 @@ provider "aws" {
 
 data "aws_caller_identity" "me" {}
 
-resource "random_id" "suffix" {
-  byte_length = 4
-}
-
 resource "random_password" "origin_secret" {
   length  = 40
   special = false
 }
 
 locals {
+  # Account-regional namespace: names only this account can own, so no random suffix is needed.
+  bucket_suffix   = "${data.aws_caller_identity.me.account_id}-${var.region}-an"
   client_id_param = "/${var.name}/client-id"
   app_url         = var.domain_name != "" ? "https://${var.domain_name}" : "https://${aws_cloudfront_distribution.this.domain_name}"
 }
@@ -42,7 +40,8 @@ locals {
 # ---------------------------------------------------------------------------
 
 resource "aws_s3_bucket" "data" {
-  bucket = "${var.name}-data-${random_id.suffix.hex}"
+  bucket           = "${var.name}-data-${local.bucket_suffix}"
+  bucket_namespace = "account-regional"
   lifecycle { prevent_destroy = true }
 }
 
@@ -138,6 +137,8 @@ data "archive_file" "lambda" {
 
 resource "aws_iam_role" "lambda" {
   name = "${var.name}-lambda"
+  # Made by bootstrap/; caps this role whatever policies are attached below.
+  permissions_boundary = "arn:aws:iam::${data.aws_caller_identity.me.account_id}:policy/${var.name}-lambda-boundary"
   assume_role_policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Principal = { Service = "lambda.amazonaws.com" }, Action = "sts:AssumeRole" }]
@@ -211,8 +212,9 @@ resource "aws_lambda_permission" "url_invoke" {
 }
 
 resource "aws_s3_bucket" "assets" {
-  bucket        = "${var.name}-assets-${random_id.suffix.hex}"
-  force_destroy = true
+  bucket           = "${var.name}-assets-${local.bucket_suffix}"
+  bucket_namespace = "account-regional"
+  force_destroy    = true
 }
 
 resource "aws_s3_bucket_public_access_block" "assets" {
@@ -229,12 +231,13 @@ locals {
 }
 
 resource "aws_s3_object" "static" {
-  for_each     = fileset(local.static_dir, "*")
-  bucket       = aws_s3_bucket.assets.id
-  key          = "static/${each.value}"
-  source       = "${local.static_dir}/${each.value}"
-  etag         = filemd5("${local.static_dir}/${each.value}")
-  content_type = lookup(local.mime, reverse(split(".", each.value))[0], "application/octet-stream")
+  for_each      = fileset(local.static_dir, "*")
+  bucket        = aws_s3_bucket.assets.id
+  key           = "static/${each.value}"
+  source        = "${local.static_dir}/${each.value}"
+  etag          = filemd5("${local.static_dir}/${each.value}")
+  cache_control = "max-age=300" # a redeploy's CSS/JS shows up within minutes without invalidations
+  content_type  = lookup(local.mime, reverse(split(".", each.value))[0], "application/octet-stream")
 }
 
 resource "aws_cloudfront_origin_access_control" "assets" {
@@ -272,19 +275,9 @@ resource "aws_cloudfront_function" "forwarded_host" {
   EOT
 }
 
-# Short TTL so a redeploy's CSS/JS shows up within minutes without invalidations.
-resource "aws_cloudfront_cache_policy" "static" {
-  name        = "${var.name}-static"
-  min_ttl     = 0
-  default_ttl = 300
-  max_ttl     = 3600
-  parameters_in_cache_key_and_forwarded_to_origin {
-    cookies_config { cookie_behavior = "none" }
-    headers_config { header_behavior = "none" }
-    query_strings_config { query_string_behavior = "none" }
-    enable_accept_encoding_gzip   = true
-    enable_accept_encoding_brotli = true
-  }
+# Honours each object's Cache-Control (max-age=300). A managed policy, so the deploy role needs no cache-policy rights.
+data "aws_cloudfront_cache_policy" "optimized" {
+  name = "Managed-CachingOptimized"
 }
 
 data "aws_cloudfront_cache_policy" "disabled" {
@@ -343,7 +336,7 @@ resource "aws_cloudfront_distribution" "this" {
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET", "HEAD"]
     cached_methods         = ["GET", "HEAD"]
-    cache_policy_id        = aws_cloudfront_cache_policy.static.id
+    cache_policy_id        = data.aws_cloudfront_cache_policy.optimized.id
     compress               = true
   }
 

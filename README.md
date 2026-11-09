@@ -43,15 +43,34 @@ npm run build       # dist/lambda + dist/static
 
 Pushes to `main` deploy through GitHub Actions (`.github/workflows/deploy.yml`): tests, build, then `terraform apply`. Usually that only updates the Lambda code and the static files. Every resource that takes tags gets `project-name = oxrse` and `project = rse-diary`.
 
-**One-off setup** (needs admin-ish AWS credentials and Terraform ≥ 1.6):
+All Terraform state lives in an S3 bucket in your account's own namespace (`rse-diary-tfstate-<account>-<region>-an`), locked with S3 lock files. The state bucket and the app's buckets are tagged like everything else.
+
+**One-off setup** (needs admin-level AWS credentials, the AWS CLI and Terraform ≥ 1.6). The setup stack makes the state bucket, so its first run uses local state and then moves it into that bucket:
 
 ```sh
 cd infra/bootstrap
+STATE_BUCKET="rse-diary-tfstate-$(aws sts get-caller-identity --query Account --output text)-eu-west-2-an"
+
+# 1. First run on local state (the override file switches the S3 backend off).
+printf 'terraform {\n  backend "local" {}\n}\n' > first_run_override.tf
 terraform init
-terraform apply -var github_repo=<owner>/<repo>   # add -var create_oidc_provider=false if the account already has GitHub's OIDC provider
+terraform apply -var github_repo=<owner>/<repo>   # add -var create_oidc_provider=true if the account has no GitHub OIDC provider yet
+
+# 2. Move this stack's state into the bucket it just made.
+rm first_run_override.tf
+terraform init -migrate-state -force-copy -backend-config="bucket=$STATE_BUCKET"
+rm -f terraform.tfstate terraform.tfstate.backup
 ```
 
-This makes the Terraform state bucket and an IAM role that only `main` of that repo can assume. Its own state is local (`infra/bootstrap/terraform.tfstate`); keep that file somewhere safe. Then set these GitHub repository variables:
+Later changes to the setup stack: `terraform init -backend-config="bucket=$STATE_BUCKET"` then `terraform apply -var github_repo=<owner>/<repo>`.
+
+It creates:
+
+- the state bucket (versioned, encrypted, private);
+- `rse-diary-deploy`, an IAM role only `main` of that repo can assume. It can change this project's buckets, Lambda, log group and parameters by name, and Cognito pools and CloudFront distributions only if they carry `project = rse-diary`. The one account-wide right left is CloudFront origin access controls, which AWS lets you neither tag nor name;
+- `rse-diary-lambda-boundary`, a permissions boundary the app's Lambda role must carry, so the deploy role can't hand the Lambda more than access to the diary data, its parameter and its logs.
+
+Then set these GitHub repository variables (Settings → Secrets and variables → Actions → Variables):
 
 | Variable | Value |
 |---|---|
@@ -67,7 +86,7 @@ Push to `main`, and the workflow summary shows the site address.
 ```sh
 npm ci && npm run build
 cd infra
-terraform init -backend-config="bucket=<state bucket>"
+terraform init -backend-config="bucket=$STATE_BUCKET"
 terraform apply -var cognito_domain_prefix=<prefix>
 ```
 
