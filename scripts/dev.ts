@@ -47,7 +47,7 @@ async function seed() {
   for (let i = 0; i < items.length; i += 100) await logEntries(repo, items.slice(i, i + 100), { today: t, source: "agent:demo" });
 }
 
-const TYPES: Record<string, string> = { css: "text/css", js: "text/javascript" };
+const TYPES: Record<string, string> = { css: "text/css", js: "text/javascript", svg: "image/svg+xml" };
 
 createServer(async (req, res) => {
   const url = `http://localhost:${PORT}${req.url}`;

@@ -186,3 +186,5 @@ td form button[type=submit] { width: auto; margin: 0; padding: .3rem .8rem; }
   header nav ul:last-of-type { flex-wrap: wrap; margin-left: 0; }
   header nav li { white-space: nowrap; padding-inline: .45rem; }
 }
+
+.brand { display: inline-flex; align-items: center; gap: .5rem; }

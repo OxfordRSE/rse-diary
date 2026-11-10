@@ -33,6 +33,7 @@ export function layout(title: string, body: Html, opts: { user?: string } = {}):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title} · RSE diary</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/pico.min.css">
 <link rel="stylesheet" href="/static/app.css">
 <script>try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
@@ -41,7 +42,7 @@ export function layout(title: string, body: Html, opts: { user?: string } = {}):
 <body>
 <header class="container">
 <nav>
-<ul><li><a href="/"><strong>RSE diary</strong></a></li></ul>
+<ul><li><a href="/" class="brand"><img src="/static/icon.svg" alt="" width="28" height="28"><strong>RSE diary</strong></a></li></ul>
 ${opts.user ? html`<ul>
 <li><a href="/entries/new">Log work</a></li>
 <li><a href="/projects">Projects</a></li>

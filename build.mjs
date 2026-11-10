@@ -26,5 +26,6 @@ await build({
 });
 
 await copyFile("static/app.css", "dist/static/app.css");
+await copyFile("static/icon.svg", "dist/static/icon.svg");
 await copyFile("node_modules/@picocss/pico/css/pico.min.css", "dist/static/pico.min.css");
 console.log("built dist/");

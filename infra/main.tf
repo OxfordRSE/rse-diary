@@ -227,7 +227,7 @@ resource "aws_s3_bucket_public_access_block" "assets" {
 
 locals {
   static_dir = "${path.module}/../dist/static"
-  mime       = { css = "text/css; charset=utf-8", js = "text/javascript; charset=utf-8" }
+  mime       = { css = "text/css; charset=utf-8", js = "text/javascript; charset=utf-8", svg = "image/svg+xml" }
 }
 
 resource "aws_s3_object" "static" {
