@@ -54,7 +54,7 @@ STATE_BUCKET="rse-diary-tfstate-$(aws sts get-caller-identity --query Account --
 # 1. First run on local state (the override file switches the S3 backend off).
 printf 'terraform {\n  backend "local" {}\n}\n' > first_run_override.tf
 terraform init
-terraform apply -var github_repo=<owner>/<repo>   # add -var create_oidc_provider=true if the account has no GitHub OIDC provider yet
+terraform apply   # add -var create_oidc_provider=true if the account has no GitHub OIDC provider yet
 
 # 2. Move this stack's state into the bucket it just made.
 rm first_run_override.tf
@@ -62,7 +62,7 @@ terraform init -migrate-state -force-copy -backend-config="bucket=$STATE_BUCKET"
 rm -f terraform.tfstate terraform.tfstate.backup
 ```
 
-Later changes to the setup stack: `terraform init -backend-config="bucket=$STATE_BUCKET"` then `terraform apply -var github_repo=<owner>/<repo>`.
+Later changes to the setup stack: `terraform init -backend-config="bucket=$STATE_BUCKET"` then `terraform apply`. `github_repo` defaults to this repo's immutable OIDC subject (`owner@id/repo@id`); override it for a fork.
 
 It creates:
 

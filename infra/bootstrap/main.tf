@@ -33,8 +33,9 @@ variable "name" {
 }
 
 variable "github_repo" {
-  description = "GitHub repository allowed to deploy, as owner/repo."
+  description = "GitHub repo allowed to deploy, as it appears in the OIDC `sub` claim. This repo uses immutable subjects (owner@id/repo@id); see `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`."
   type        = string
+  default     = "OxfordRSE@38728121/rse-diary@1451957137"
 }
 
 variable "create_oidc_provider" {
