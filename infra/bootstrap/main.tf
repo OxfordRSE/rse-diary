@@ -47,14 +47,11 @@ data "aws_caller_identity" "me" {}
 
 locals {
   acct = data.aws_caller_identity.me.account_id
-  # Same tags as the app stack. The deploy role may only touch Cognito pools and
-  # CloudFront distributions carrying project = rse-diary.
-  tags          = { "project-name" = "oxrse", project = "rse-diary" }
+  # Same tags as the app stack.
+  tags          = { "project-name" = "oxrse", project = "rse-diary", "managed-by" = "terraform" }
   bucket_suffix = "${local.acct}-${var.region}-an"
   oidc_arn      = var.create_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : "arn:aws:iam::${local.acct}:oidc-provider/token.actions.githubusercontent.com"
-  lambda_role   = "arn:aws:iam::${local.acct}:role/${var.name}-lambda"
-  is_project    = { StringEquals = { "aws:ResourceTag/project" = local.tags.project } }
-  tags_project  = { StringEquals = { "aws:RequestTag/project" = local.tags.project } }
+  assets_bucket = "arn:aws:s3:::${var.name}-assets-${local.bucket_suffix}"
 }
 
 resource "aws_s3_bucket" "state" {
@@ -89,8 +86,7 @@ resource "aws_iam_openid_connect_provider" "github" {
   client_id_list = ["sts.amazonaws.com"]
 }
 
-# The most the app's Lambda role can ever do, whatever the deploy role attaches to it.
-# Without this, a deploy role that can edit the Lambda role could grant it anything.
+# The most the app's Lambda role can ever do, whatever is attached to it.
 resource "aws_iam_policy" "lambda_boundary" {
   name = "${var.name}-lambda-boundary"
   policy = jsonencode({
@@ -121,37 +117,16 @@ resource "aws_iam_role" "deploy" {
   })
 }
 
-# Enough to run `terraform apply` on infra/ and nothing outside this project:
-# names where the service has named ARNs, the project tag where it has generated ids.
+# Only enough to ship app code: new Lambda code and the static files.
+# Infrastructure changes are applied by hand with admin credentials.
 resource "aws_iam_role_policy" "deploy" {
   role = aws_iam_role.deploy.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Sid = "Buckets", Effect = "Allow", Action = "s3:*", Resource = ["arn:aws:s3:::${var.name}-*-${local.bucket_suffix}", "arn:aws:s3:::${var.name}-*-${local.bucket_suffix}/*"] },
-      { Sid = "Lambda", Effect = "Allow", Action = "lambda:*", Resource = "arn:aws:lambda:${var.region}:${local.acct}:function:${var.name}*" },
-      { Sid = "Params", Effect = "Allow", Action = "ssm:*", Resource = "arn:aws:ssm:${var.region}:${local.acct}:parameter/${var.name}/*" },
-      { Sid = "Logs", Effect = "Allow", Action = "logs:*", Resource = "arn:aws:logs:${var.region}:${local.acct}:log-group:/aws/lambda/${var.name}*" },
-
-      # The Lambda role: only with the boundary above, and only passed to Lambda.
-      { Sid = "LambdaRoleWrite", Effect = "Allow", Action = ["iam:CreateRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:PutRolePermissionsBoundary"], Resource = local.lambda_role, Condition = { StringEquals = { "iam:PermissionsBoundary" = aws_iam_policy.lambda_boundary.arn } } },
-      { Sid = "LambdaRoleManage", Effect = "Allow", Action = ["iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole", "iam:UpdateAssumeRolePolicy", "iam:TagRole", "iam:UntagRole", "iam:DeleteRole"], Resource = local.lambda_role },
-      { Sid = "LambdaRolePass", Effect = "Allow", Action = "iam:PassRole", Resource = local.lambda_role, Condition = { StringEquals = { "iam:PassedToService" = "lambda.amazonaws.com" } } },
-
-      # Cognito pools have generated ids: create only with the project tag, then touch only tagged pools.
-      { Sid = "CognitoCreate", Effect = "Allow", Action = "cognito-idp:CreateUserPool", Resource = "*", Condition = local.tags_project },
-      { Sid = "CognitoManage", Effect = "Allow", Action = "cognito-idp:*", Resource = "arn:aws:cognito-idp:${var.region}:${local.acct}:userpool/*", Condition = local.is_project },
-      { Sid = "CognitoDomainRead", Effect = "Allow", Action = "cognito-idp:DescribeUserPoolDomain", Resource = "*" },
-
-      # CloudFront: distributions by tag, functions by name.
-      { Sid = "CloudFrontCreate", Effect = "Allow", Action = ["cloudfront:CreateDistribution", "cloudfront:CreateDistributionWithTags"], Resource = "arn:aws:cloudfront::${local.acct}:distribution/*", Condition = local.tags_project },
-      { Sid = "CloudFrontManage", Effect = "Allow", Action = "cloudfront:*", Resource = "arn:aws:cloudfront::${local.acct}:distribution/*", Condition = local.is_project },
-      { Sid = "CloudFrontFunctions", Effect = "Allow", Action = "cloudfront:*", Resource = "arn:aws:cloudfront::${local.acct}:function/${var.name}-*" },
-      # Origin access controls can't be tagged or named in ARNs; this is the one account-wide CloudFront write.
-      { Sid = "CloudFrontOAC", Effect = "Allow", Action = ["cloudfront:CreateOriginAccessControl", "cloudfront:GetOriginAccessControl", "cloudfront:UpdateOriginAccessControl", "cloudfront:DeleteOriginAccessControl"], Resource = "arn:aws:cloudfront::${local.acct}:origin-access-control/*" },
-
-      { Sid = "ReadOnly", Effect = "Allow", Action = ["cloudfront:ListCachePolicies", "cloudfront:GetCachePolicy", "cloudfront:ListOriginRequestPolicies", "cloudfront:GetOriginRequestPolicy", "cloudfront:ListOriginAccessControls", "ssm:DescribeParameters", "logs:DescribeLogGroups", "acm:DescribeCertificate", "sts:GetCallerIdentity"], Resource = "*" },
-      { Sid = "KeepBoundary", Effect = "Deny", Action = "iam:DeleteRolePermissionsBoundary", Resource = local.lambda_role },
+      { Sid = "LambdaCode", Effect = "Allow", Action = ["lambda:UpdateFunctionCode", "lambda:GetFunction", "lambda:GetFunctionConfiguration"], Resource = "arn:aws:lambda:${var.region}:${local.acct}:function:${var.name}" },
+      { Sid = "AssetsList", Effect = "Allow", Action = "s3:ListBucket", Resource = local.assets_bucket },
+      { Sid = "AssetsWrite", Effect = "Allow", Action = ["s3:PutObject", "s3:DeleteObject"], Resource = "${local.assets_bucket}/static/*" },
     ]
   })
 }

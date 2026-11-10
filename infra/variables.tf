@@ -15,15 +15,15 @@ variable "cognito_domain_prefix" {
 }
 
 variable "domain_name" {
-  description = "Optional custom domain (e.g. diary.example.ac.uk). Empty = use the CloudFront domain."
+  description = "The site's address. Terraform makes its certificate and DNS records in zone_name."
   type        = string
-  default     = ""
+  default     = "diary.oxrse.uk"
 }
 
-variable "acm_certificate_arn" {
-  description = "ACM certificate in us-east-1 for domain_name. Required when domain_name is set."
+variable "zone_name" {
+  description = "Existing Route53 hosted zone that domain_name sits in."
   type        = string
-  default     = ""
+  default     = "oxrse.uk"
 }
 
 variable "tags" {

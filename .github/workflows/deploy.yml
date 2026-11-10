@@ -1,11 +1,9 @@
-# Tests every push and PR; pushes to main also deploy with `terraform apply`.
-# Usually that only changes the Lambda code and the static files in S3.
+# Tests every push and PR; pushes to main also ship the Lambda code and static files.
+# Infrastructure is not touched here: run `terraform apply` in infra/ by hand (see README).
 #
 # Repository variables to set (Settings → Secrets and variables → Actions → Variables):
-#   AWS_DEPLOY_ROLE_ARN    from `terraform -chdir=infra/bootstrap output deploy_role_arn`
-#   TF_STATE_BUCKET        from `terraform -chdir=infra/bootstrap output state_bucket`
-#   COGNITO_DOMAIN_PREFIX  globally unique Cognito sign-in prefix
-#   DOMAIN_NAME, ACM_CERTIFICATE_ARN  optional custom domain
+#   AWS_DEPLOY_ROLE_ARN  from `terraform -chdir=infra/bootstrap output -raw deploy_role_arn`
+#   APP_URL              from `terraform -chdir=infra output -raw app_url`
 
 name: test-and-deploy
 
@@ -21,8 +19,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -34,32 +32,35 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    concurrency: deploy # one apply at a time; the state lock is the backstop
+    concurrency: deploy # one deploy at a time
     permissions:
       contents: read
       id-token: write # for AWS OIDC
     env:
-      TF_VAR_cognito_domain_prefix: ${{ vars.COGNITO_DOMAIN_PREFIX }}
-      TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
-      TF_VAR_acm_certificate_arn: ${{ vars.ACM_CERTIFICATE_ARN }}
+      FUNCTION: rse-diary
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run build
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: eu-west-2
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_wrapper: false
-      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
-        working-directory: infra
-      - run: terraform apply -input=false -auto-approve
-        working-directory: infra
-      - run: echo "Deployed to $(terraform output -raw app_url)" >> "$GITHUB_STEP_SUMMARY"
-        working-directory: infra
+      - name: Update Lambda code
+        run: |
+          (cd dist/lambda && zip -qr ../lambda.zip .)
+          aws lambda update-function-code --function-name "$FUNCTION" --zip-file fileb://dist/lambda.zip > /dev/null
+          aws lambda wait function-updated --function-name "$FUNCTION"
+      - name: Upload static files
+        run: |
+          bucket="s3://rse-diary-assets-$(aws sts get-caller-identity --query Account --output text)-eu-west-2-an/static"
+          # One pass per type so each gets the right Content-Type; --delete removes stale files of that type.
+          for pair in "css:text/css; charset=utf-8" "js:text/javascript; charset=utf-8" "svg:image/svg+xml"; do
+            aws s3 sync dist/static "$bucket" --delete --exclude '*' --include "*.${pair%%:*}" \
+              --content-type "${pair#*:}" --cache-control max-age=300
+          done
+      - run: echo "Deployed to ${{ vars.APP_URL }}" >> "$GITHUB_STEP_SUMMARY"

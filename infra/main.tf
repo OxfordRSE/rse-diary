@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.7"
   required_providers {
     aws     = { source = "hashicorp/aws", version = "~> 6.0" }
     archive = { source = "hashicorp/archive", version = "~> 2.4" }
@@ -14,10 +14,28 @@ terraform {
   }
 }
 
+locals {
+  tags = merge(var.tags, {
+    "project-name" = "oxrse"
+    project        = "rse-diary"
+    "managed-by"   = "terraform"
+    "app-url"      = "https://${var.domain_name}"
+    # package.json version at the last `terraform apply` (CI ships code without retagging).
+    version = jsondecode(file("${path.module}/../package.json")).version
+  })
+}
+
 provider "aws" {
   region = var.region
   # Tags every taggable resource (CloudFront functions/policies, OAC, Cognito clients and function URLs can't take tags).
-  default_tags { tags = merge(var.tags, { "project-name" = "oxrse", project = "rse-diary" }) }
+  default_tags { tags = local.tags }
+}
+
+# CloudFront only accepts certificates from us-east-1.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+  default_tags { tags = local.tags }
 }
 
 data "aws_caller_identity" "me" {}
@@ -31,7 +49,7 @@ locals {
   # Account-regional namespace: names only this account can own, so no random suffix is needed.
   bucket_suffix   = "${data.aws_caller_identity.me.account_id}-${var.region}-an"
   client_id_param = "/${var.name}/client-id"
-  app_url         = var.domain_name != "" ? "https://${var.domain_name}" : "https://${aws_cloudfront_distribution.this.domain_name}"
+  app_url         = "https://${var.domain_name}"
 }
 
 # ---------------------------------------------------------------------------
@@ -172,6 +190,8 @@ resource "aws_lambda_function" "app" {
   source_code_hash = data.archive_file.lambda.output_base64sha256
   memory_size      = 512
   timeout          = 10
+  # CI ships code with update-function-code; Terraform only uploads it on first create.
+  lifecycle { ignore_changes = [filename, source_code_hash] }
   environment {
     variables = {
       DATA_BUCKET     = aws_s3_bucket.data.id
@@ -225,19 +245,11 @@ resource "aws_s3_bucket_public_access_block" "assets" {
   restrict_public_buckets = true
 }
 
-locals {
-  static_dir = "${path.module}/../dist/static"
-  mime       = { css = "text/css; charset=utf-8", js = "text/javascript; charset=utf-8", svg = "image/svg+xml" }
-}
-
-resource "aws_s3_object" "static" {
-  for_each      = fileset(local.static_dir, "*")
-  bucket        = aws_s3_bucket.assets.id
-  key           = "static/${each.value}"
-  source        = "${local.static_dir}/${each.value}"
-  etag          = filemd5("${local.static_dir}/${each.value}")
-  cache_control = "max-age=300" # a redeploy's CSS/JS shows up within minutes without invalidations
-  content_type  = lookup(local.mime, reverse(split(".", each.value))[0], "application/octet-stream")
+# Static files are uploaded by CI (.github/workflows/deploy.yml), not Terraform.
+# This keeps the objects Terraform used to manage instead of deleting them.
+removed {
+  from = aws_s3_object.static
+  lifecycle { destroy = false }
 }
 
 resource "aws_cloudfront_origin_access_control" "assets" {
@@ -292,7 +304,7 @@ resource "aws_cloudfront_distribution" "this" {
   enabled         = true
   is_ipv6_enabled = true
   price_class     = "PriceClass_100"
-  aliases         = var.domain_name != "" ? [var.domain_name] : []
+  aliases         = [var.domain_name]
   comment         = var.name
 
   origin {
@@ -345,9 +357,51 @@ resource "aws_cloudfront_distribution" "this" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = var.domain_name == ""
-    acm_certificate_arn            = var.domain_name != "" ? var.acm_certificate_arn : null
-    ssl_support_method             = var.domain_name != "" ? "sni-only" : null
-    minimum_protocol_version       = var.domain_name != "" ? "TLSv1.2_2021" : null
+    acm_certificate_arn      = aws_acm_certificate_validation.this.certificate_arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Domain: certificate (DNS-validated) and alias records in the existing zone.
+# ---------------------------------------------------------------------------
+
+data "aws_route53_zone" "this" {
+  name = var.zone_name
+}
+
+resource "aws_acm_certificate" "this" {
+  provider          = aws.us_east_1
+  domain_name       = var.domain_name
+  validation_method = "DNS"
+  lifecycle { create_before_destroy = true }
+}
+
+resource "aws_route53_record" "cert_validation" {
+  for_each        = { for o in aws_acm_certificate.this.domain_validation_options : o.domain_name => o }
+  zone_id         = data.aws_route53_zone.this.zone_id
+  name            = each.value.resource_record_name
+  type            = each.value.resource_record_type
+  records         = [each.value.resource_record_value]
+  ttl             = 300
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "this" {
+  provider                = aws.us_east_1
+  certificate_arn         = aws_acm_certificate.this.arn
+  validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
+}
+
+resource "aws_route53_record" "site" {
+  for_each = toset(["A", "AAAA"])
+  zone_id  = data.aws_route53_zone.this.zone_id
+  name     = var.domain_name
+  type     = each.value
+  alias {
+    name                   = aws_cloudfront_distribution.this.domain_name
+    zone_id                = aws_cloudfront_distribution.this.hosted_zone_id
+    evaluate_target_health = false
   }
 }

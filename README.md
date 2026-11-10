@@ -41,11 +41,11 @@ npm run build       # dist/lambda + dist/static
 
 ## Deploy
 
-Pushes to `main` deploy through GitHub Actions (`.github/workflows/deploy.yml`): tests, build, then `terraform apply`. Usually that only updates the Lambda code and the static files. Every resource that takes tags gets `project-name = oxrse` and `project = rse-diary`.
+Pushes to `main` deploy through GitHub Actions (`.github/workflows/deploy.yml`): tests, build, then new Lambda code and static files. CI never runs Terraform. Infrastructure changes (new env vars, permissions, CloudFront settings) are applied by hand, and must be applied **before** merging code that depends on them. Every resource that takes tags gets `project-name = oxrse`, `project = rse-diary` and `managed-by = terraform`; app resources also get `app-url` and `version` (from `package.json` at the last apply).
 
 All Terraform state lives in an S3 bucket in your account's own namespace (`rse-diary-tfstate-<account>-<region>-an`), locked with S3 lock files. The state bucket and the app's buckets are tagged like everything else.
 
-**One-off setup** (needs admin-level AWS credentials, the AWS CLI and Terraform ≥ 1.6). The setup stack makes the state bucket, so its first run uses local state and then moves it into that bucket:
+**One-off setup** (needs admin-level AWS credentials, the AWS CLI and Terraform ≥ 1.7). The setup stack makes the state bucket, so its first run uses local state and then moves it into that bucket:
 
 ```sh
 cd infra/bootstrap
@@ -67,28 +67,32 @@ Later changes to the setup stack: `terraform init -backend-config="bucket=$STATE
 It creates:
 
 - the state bucket (versioned, encrypted, private);
-- `rse-diary-deploy`, an IAM role only `main` of that repo can assume. It can change this project's buckets, Lambda, log group and parameters by name, and Cognito pools and CloudFront distributions only if they carry `project = rse-diary`. The one account-wide right left is CloudFront origin access controls, which AWS lets you neither tag nor name;
-- `rse-diary-lambda-boundary`, a permissions boundary the app's Lambda role must carry, so the deploy role can't hand the Lambda more than access to the diary data, its parameter and its logs.
+- `rse-diary-deploy`, an IAM role only `main` of that repo can assume. It can only replace the `rse-diary` Lambda's code and write under `static/` in the assets bucket;
+- `rse-diary-lambda-boundary`, a permissions boundary the app's Lambda role must carry, so it can never get more than access to the diary data, its parameter and its logs.
+
+Then create the app stack by hand (see below) once.
+
+**Infrastructure** (first time, and whenever `infra/` changes), with admin credentials:
+
+```sh
+npm ci && npm run build   # first create uploads the Lambda code from dist/; after that CI owns it
+cd infra
+terraform init -backend-config="bucket=$STATE_BUCKET"
+terraform apply -var cognito_domain_prefix=<prefix>
+```
+
+The site is served at `https://diary.oxrse.uk`. Terraform makes its certificate (ACM, us-east-1, DNS-validated) and the A/AAAA alias records in the existing `oxrse.uk` Route53 zone. Override with `-var domain_name=… -var zone_name=…`.
+
+Terraform ignores later Lambda code changes and doesn't manage the static files, so a local apply never rolls back what CI shipped. On a fresh stack, push to `main` (or re-run the workflow) to upload the static files.
 
 Then set these GitHub repository variables (Settings → Secrets and variables → Actions → Variables):
 
 | Variable | Value |
 |---|---|
-| `AWS_DEPLOY_ROLE_ARN` | `terraform output -raw deploy_role_arn` |
-| `TF_STATE_BUCKET` | `terraform output -raw state_bucket` |
-| `COGNITO_DOMAIN_PREFIX` | a globally unique prefix for the sign-in page |
-| `DOMAIN_NAME`, `ACM_CERTIFICATE_ARN` | optional custom domain (certificate in us-east-1); point a CNAME at `terraform output cloudfront_domain` |
+| `AWS_DEPLOY_ROLE_ARN` | `terraform -chdir=infra/bootstrap output -raw deploy_role_arn` |
+| `APP_URL` | `terraform -chdir=infra output -raw app_url` |
 
 Push to `main`, and the workflow summary shows the site address.
-
-**Deploying by hand** uses the same state:
-
-```sh
-npm ci && npm run build
-cd infra
-terraform init -backend-config="bucket=$STATE_BUCKET"
-terraform apply -var cognito_domain_prefix=<prefix>
-```
 
 The data bucket and user pool have `prevent_destroy`, so app changes never touch your data.
 
